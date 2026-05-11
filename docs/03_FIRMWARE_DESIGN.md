@@ -2,15 +2,35 @@
 
 ## 1. Overview
 
-The GoatBand firmware runs on an ESP32 NodeMCU-32S using the ESP-IDF v5.x framework (no Arduino). It is structured as a set of FreeRTOS tasks that cooperatively sample sensors, compute activity scores, and broadcast telemetry over BLE.
+The GoatBand MVP-1 firmware runs on an ESP32 NodeMCU-32S using pure ESP-IDF v5.x (no Arduino). It is built with PlatformIO inside VS Code. The firmware reads motion and temperature sensors, computes an activity score, and streams JSON telemetry over BLE every 30 seconds.
 
-**Key design decisions:**
-- Pure ESP-IDF for direct FreeRTOS, NVS, ADC v5, and Bluedroid access
-- Modular driver architecture — each sensor is an independent compilation unit
-- Shared state protected by a FreeRTOS mutex
-- Pinned tasks to specific cores for deterministic timing
+### Why ESP-IDF and Not Arduino
 
-## 2. Boot Sequence
+- Direct access to FreeRTOS, NVS, ADC v5 driver, and Bluedroid — the same stack Espressif uses internally
+- Finer power control — critical when chasing the 50-day battery target
+- Smaller binary and explicit task model — easier to reason about than `setup()`/`loop()`
+- Same tooling carries through MVP-5 — no rewrite later for OTA, deep sleep, or custom partitions
+
+## 2. Project Layout
+
+```
+firmware/
+├── platformio.ini       board: nodemcu-32s, framework: espidf
+├── partitions.csv       custom flash layout (larger NVS for baselines)
+├── CMakeLists.txt       ESP-IDF requirement
+├── include/
+│   └── pinmap.h         single source of truth for hardware pins
+└── src/
+    ├── CMakeLists.txt
+    ├── main.c           app_main + 2 FreeRTOS tasks
+    ├── mpu6050.c/.h     I2C motion sensor driver
+    ├── ds18b20.c/.h     1-Wire temperature driver
+    ├── battery.c/.h     ADC v5 oneshot battery monitor
+    ├── ble_service.c/.h Bluedroid GATT server
+    └── activity_score.c/.h  MVP-1 placeholder, swapped in MVP-3
+```
+
+## 3. Boot Sequence
 
 ```mermaid
 sequenceDiagram
@@ -31,7 +51,7 @@ sequenceDiagram
     MAIN->>I2C: i2c_master_init()
     Note over I2C: SDA=21, SCL=22, 400 kHz
     MAIN->>MPU: mpu6050_init()
-    Note over MPU: WHO_AM_I check, set ±4g, ±500°/s
+    Note over MPU: WHO_AM_I check, set +/-4g, +/-500 deg/s
     MAIN->>DS: ds18b20_init()
     Note over DS: GPIO 4, 1-Wire reset pulse
     MAIN->>BAT: battery_init()
@@ -39,24 +59,22 @@ sequenceDiagram
     MAIN->>BLE: ble_service_init()
     Note over BLE: Bluedroid stack, GATT server, advertising
     MAIN->>MAIN: Create mutex
-    MAIN->>MT: xTaskCreatePinnedToCore (Core 1, Prio 6)
-    MAIN->>TT: xTaskCreatePinnedToCore (Core 0, Prio 4)
+    MAIN->>MT: xTaskCreatePinnedToCore Core 1 Prio 6
+    MAIN->>TT: xTaskCreatePinnedToCore Core 0 Prio 4
     Note over MAIN: app_main returns, scheduler runs tasks
 ```
 
-## 3. FreeRTOS Task Architecture
+## 4. FreeRTOS Task Architecture
 
-The firmware runs three concurrent activities:
-
-### 3.1 Task Summary
+### Task Summary
 
 | Task | Core | Priority | Stack | Period | Function |
 |------|------|----------|-------|--------|----------|
 | `motion_task` | Core 1 | 6 (high) | 4096 B | 50 ms (20 Hz) | Sample MPU-6050, accumulate motion |
-| `telemetry_task` | Core 0 | 4 (medium) | 4096 B | 30,000 ms | Read temp + batt, compute score, BLE notify |
-| BLE stack | Core 0 | (internal) | (internal) | Event-driven | Bluedroid GATT server |
+| `telemetry_task` | Core 0 | 4 (normal) | 4096 B | 30,000 ms | Read temp + batt, compute score, BLE notify |
+| BLE host stack | Core 0 | (Bluedroid) | (internal) | Event-driven | GAP advertising, GATT connections |
 
-### 3.2 Task Interaction Diagram
+### Task Interaction
 
 ```mermaid
 graph LR
@@ -69,24 +87,25 @@ graph LR
         BLE_STACK["Bluedroid Stack\nGATT Server"]
     end
 
-    subgraph SharedState["Shared State"]
-        MUTEX["Mutex-Protected"]
-        ACCUM["motion_accum: float"]
-        COUNT["motion_count: uint32"]
+    subgraph SharedState["Shared State - Mutex Protected"]
+        ACCUM["motion_accum"]
+        COUNT["motion_count"]
     end
 
-    MOTION -->|accumulate| MUTEX
-    TELEM -->|snapshot + reset| MUTEX
+    MOTION -->|accumulate| SharedState
+    TELEM -->|snapshot + reset| SharedState
     TELEM -->|notify| BLE_STACK
-    BLE_STACK -->|advertise| PHONE["BLE Client"]
+    BLE_STACK -->|advertise| PHONE["Phone"]
 ```
 
-### 3.3 motion_task Detail
+### motion_task Detail
+
+Runs at 20 Hz on Core 1. Reads MPU-6050 accelerometer, computes acceleration magnitude, subtracts gravity (9.81 m/s²), and accumulates into shared state.
 
 ```
-LOOP (every 50 ms):
-    1. Read MPU-6050 accelerometer (ax, ay, az in m/s²)
-    2. Compute magnitude: mag = sqrt(ax² + ay² + az²)
+LOOP every 50 ms:
+    1. Read MPU-6050 accelerometer (ax, ay, az in m/s2)
+    2. Compute magnitude: mag = sqrt(ax^2 + ay^2 + az^2)
     3. Subtract gravity: motion = |mag - 9.81|
     4. LOCK mutex
     5. motion_accum += motion
@@ -95,27 +114,28 @@ LOOP (every 50 ms):
     8. vTaskDelay(50 ms)
 ```
 
-**Rationale for Core 1 and Priority 6:**
-Motion sampling is timing-critical. Running on a dedicated core prevents interference from BLE stack events on Core 0. Higher priority ensures samples are not delayed by telemetry processing.
+**Why Core 1 and Priority 6**: Motion sampling is timing-critical. A dedicated core prevents interference from BLE stack events on Core 0.
 
-### 3.4 telemetry_task Detail
+### telemetry_task Detail
+
+Runs every 30 seconds on Core 0. Snapshots the motion accumulator, reads temperature and battery, computes score, formats JSON, and sends BLE notification.
 
 ```
-LOOP (every 30,000 ms):
+LOOP every 30,000 ms:
     1. vTaskDelay(30s)
     2. LOCK mutex
-    3. avg_motion = motion_accum / motion_count (or 0 if count=0)
-    4. Reset motion_accum = 0, motion_count = 0
+    3. avg_motion = motion_accum / motion_count (or 0)
+    4. Reset accum=0, count=0
     5. UNLOCK mutex
-    6. Read DS18B20 temperature (blocks ~800ms for 12-bit conversion)
+    6. Read DS18B20 temperature (blocks ~800ms)
     7. Read battery voltage via ADC
     8. Compute activity score from avg_motion
-    9. Format JSON: {"t":seconds, "motion":0.018, "temp":27.43, "batt":3.92, "score":0}
-    10. Log to serial (ESP_LOGI)
-    11. Send BLE notification to connected client
+    9. Format JSON packet
+    10. Log to serial
+    11. Send BLE notification
 ```
 
-## 4. Concurrency Model
+## 5. Concurrency Model
 
 ```mermaid
 sequenceDiagram
@@ -140,11 +160,11 @@ sequenceDiagram
     TT->>TT: Read battery voltage
     TT->>TT: Compute activity score
     TT->>TT: Format JSON
-    TT->>BLE: ble_service_notify(json)
-    BLE->>BLE: esp_ble_gatts_send_indicate
+    TT->>BLE: ble_service_notify json
+    BLE->>BLE: GATT send indication
 ```
 
-## 5. Module Dependency Graph
+## 6. Module Dependency Graph
 
 ```mermaid
 graph TD
@@ -168,74 +188,37 @@ graph TD
     MAIN --> RTOS["FreeRTOS"]
 ```
 
-## 6. Memory Layout
+## 7. Memory Layout
 
-### 6.1 Flash Partition Table
+### Flash Partition Table
 
 | Partition | Type | Offset | Size | Purpose |
 |-----------|------|--------|------|---------|
-| `nvs` | data/nvs | 0x9000 | 24 KB | Per-goat baselines, BLE bonding |
+| `nvs` | data/nvs | 0x9000 | 24 KB | Per-goat baselines (MVP-3), BLE bonding |
 | `phy_init` | data/phy | 0xF000 | 4 KB | PHY calibration data |
 | `factory` | app/factory | 0x10000 | 1536 KB | Firmware binary |
 | `storage` | data/spiffs | 0x190000 | 448 KB | SPIFFS for logs/config |
 
-### 6.2 RAM Usage Estimate
+The NVS partition is deliberately oversized (24 KB vs default 16 KB) to accommodate per-goat baseline storage in MVP-3: 24 hourly profiles × (mean + stdev) × float.
 
-| Component | Stack/Heap | Estimate |
-|-----------|-----------|----------|
-| `motion_task` stack | 4096 B | Fixed |
-| `telemetry_task` stack | 4096 B | Fixed |
-| Bluedroid stack | ~30 KB | Dynamic (heap) |
-| Shared state | ~16 B | Static globals |
-| JSON buffer | 256 B | Stack-allocated in telemetry_task |
-| **Total estimated** | | **~45 KB** (of 520 KB available) |
+## 8. What MVP-1 Firmware Does NOT Do
 
-## 7. Pin Allocation Map
+These are **intentionally deferred**. Adding them too early creates noise that hides the real bugs:
 
+| Feature | Deferred To | Reason |
+|---------|-------------|--------|
+| Per-goat baseline learning | MVP-3 | Need real goat data first (from MVP-2) |
+| NVS persistence of baselines | MVP-3 | Depends on baseline algorithm |
+| LoRa transmission | MVP-4 | Pins already mapped in `pinmap.h` |
+| Deep sleep between samples | MVP-2 | Need to measure power profile first |
+| OTA firmware updates | MVP-5 | Need cloud infrastructure |
+
+## 9. Firmware Evolution Across MVPs
+
+```mermaid
+graph LR
+    MVP1["MVP-1\nSensors + BLE\nNaive score"] --> MVP2["MVP-2\nAdd deep sleep\nFlash logging"]
+    MVP2 --> MVP3["MVP-3\nBaseline learning\nNVS persistence\nSmart alerting"]
+    MVP3 --> MVP4["MVP-4\nEnable LoRa SPI\nPacket transmission"]
+    MVP4 --> MVP5["MVP-5\nOTA updates\nProduction hardening"]
 ```
-ESP32 NodeMCU-32S Pin Assignment
-================================
-
-GPIO 21 ─── I2C SDA ──── MPU-6050 SDA
-GPIO 22 ─── I2C SCL ──── MPU-6050 SCL
-GPIO 4  ─── 1-Wire ───── DS18B20 DATA (4.7kΩ pullup to 3V3)
-GPIO 35 ─── ADC1_CH7 ─── Battery divider midpoint (100k/100k)
-
---- Reserved for MVP-4 (LoRa SX1276) ---
-GPIO 23 ─── SPI MOSI
-GPIO 19 ─── SPI MISO
-GPIO 18 ─── SPI SCK
-GPIO 5  ─── SPI CS
-GPIO 14 ─── LoRa RST
-GPIO 26 ─── LoRa DIO0
-```
-
-## 8. Error Handling Strategy
-
-| Component | Error | Handling |
-|-----------|-------|----------|
-| MPU-6050 init | WHO_AM_I mismatch | `ESP_FAIL` → logged, boot continues (motion reads will silently fail) |
-| DS18B20 init | No presence pulse | `ESP_FAIL` → warning logged, `ds18b20_read_temp()` returns -127.0 |
-| Battery ADC | Calibration unavailable | Falls back to raw 12-bit → 3.3V linear conversion |
-| BLE init | Any Bluedroid error | `ESP_ERROR_CHECK` → hard fault and reboot |
-| I2C read | Timeout | Returns `ESP_ERR_TIMEOUT`, motion sample is skipped |
-| NVS init | Corrupt/version mismatch | Erases flash, reinitializes |
-
-## 9. Power Profile (Target)
-
-| State | Current Draw | Duration | Notes |
-|-------|-------------|----------|-------|
-| Active sampling (20 Hz) | ~80 mA | 30 s | MPU-6050 + ESP32 active |
-| Temperature conversion | ~12 mA | 800 ms | DS18B20 12-bit conversion |
-| BLE advertising | ~15 mA | Continuous | Interval 20–40 ms |
-| Deep sleep (MVP-2+) | ~10 µA | Between windows | RTC wakeup |
-| **Target battery life** | | | **50+ days on 2600 mAh cell** |
-
-## 10. Future Firmware Enhancements
-
-| MVP | Enhancement | Impact on Firmware |
-|-----|------------|-------------------|
-| MVP-2 | Deep sleep between windows | Add `esp_deep_sleep_start()` after telemetry send |
-| MVP-3 | Per-goat baseline learning | Replace `activity_score.c` with NVS-backed baseline |
-| MVP-4 | LoRa transmission | Enable SPI, add LoRa driver using mapped pins |
-| MVP-5 | OTA updates | Add OTA partition, HTTPS pull from cloud |

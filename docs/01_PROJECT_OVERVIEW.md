@@ -2,142 +2,160 @@
 
 ## 1. Introduction
 
-GoatBand is an IoT-based smart neckband system designed for early illness detection in commercial goat farms. The system continuously monitors goat activity levels and body temperature using on-animal wearable devices, transmits telemetry data to a centralized hub, and delivers actionable health alerts to farmers via a mobile application.
+GoatBand is a smart neckband for early illness detection in commercial goat farms. It uses on-animal wearable sensors to continuously monitor activity levels and body temperature, detects behavioral deviations through per-goat baseline learning, and alerts farmers before symptoms become visually apparent.
 
-The project addresses a critical challenge in livestock management: detecting illness in goats before visible symptoms appear, enabling timely veterinary intervention and reducing mortality rates in commercial herds.
+The project follows a 5-MVP incremental development approach — each stage produces data that feeds the next, de-risking hardware, firmware, algorithm, radio, and user experience in sequence.
 
 ## 2. Problem Statement
 
-Commercial goat farming operations suffer significant financial losses due to late detection of illness. By the time a goat shows visible signs of sickness (lethargy, refusal to eat, isolation from the herd), the disease may have progressed to a stage where treatment is less effective or other animals have already been exposed.
+Commercial goat farms suffer losses from late illness detection. By the time a goat shows visible sickness (lethargy, refusal to eat, isolation from herd), the disease has often progressed beyond easy treatment, and other animals may already be exposed.
 
-Key challenges this project solves:
+**Why this matters:**
 
-- **Delayed detection**: Manual observation by farmers fails to catch early behavioral changes
-- **Scale limitations**: A single farmer cannot continuously monitor dozens or hundreds of goats
-- **Lack of objective data**: Subjective visual inspection is unreliable for early-stage illness
-- **No historical baselines**: Without per-animal data, subtle deviations go unnoticed
+- Manual observation fails to catch early behavioral changes
+- A single farmer cannot continuously monitor dozens of goats
+- Subjective visual inspection is unreliable for early-stage illness
+- Without per-animal data, subtle activity deviations go unnoticed
 
-## 3. Solution Architecture (High Level)
+## 3. Solution — What GoatBand Does
 
-GoatBand deploys a multi-layer IoT architecture:
+Each goat wears a neckband containing:
 
-| Layer | Component | Role |
-|-------|-----------|------|
-| Layer 1 — Edge | ESP32 neckband | Sensors + edge compute on the goat |
-| Layer 2 — Gateway | Raspberry Pi hub | Aggregates data from all bands in a shed |
-| Layer 3 — Cloud | Backend services | Stores history, runs alert engine, sends notifications |
-| Layer 4 — Client | Flutter mobile app | Farmer-facing dashboard, alerts, and per-goat profiles |
+- **MPU-6050 accelerometer** — tracks motion at 20 Hz
+- **DS18B20 temperature probe** — reads skin temperature every 30 seconds
+- **ESP32 microcontroller** — runs edge compute (activity scoring) on-device
+- **BLE radio** — streams JSON telemetry to phone for testing
+- **LoRa radio** (from MVP-4) — sends data to a shed hub for farm-scale collection
 
-## 4. Hardware Bill of Materials (MVP-1)
+The band computes an **activity score (0–100)** by comparing current motion to a learned per-goat baseline. If a goat is abnormally inactive for extended periods (especially with elevated temperature), the system fires an alert.
 
-| Component | Specification | Purpose | Unit Cost (INR) |
-|-----------|---------------|---------|-----------------|
-| ESP32 NodeMCU-32S | 240 MHz dual-core, WiFi + BLE | Main MCU | ~₹350 |
-| MPU-6050 | 6-axis IMU (accelerometer + gyroscope) | Motion sensing | ~₹120 |
-| DS18B20 | Waterproof 1-Wire temperature probe | Body temperature | ~₹80 |
-| TP4056 module | Li-ion charge controller | Battery charging | ~₹30 |
-| 18650 Li-ion cell | 3.7V, 2600–3000 mAh | Power supply | ~₹150 |
-| SX1276 LoRa module | 433 MHz, long-range radio (MVP-4) | Shed-range comms | ~₹250 |
-| Passive components | Resistors, capacitors, pullups | Signal conditioning | ~₹20 |
-| **Total per band** | | | **~₹1,178** |
+## 4. Why 5 MVPs and Not One Big Build
 
-**Target deployment**: 5 bands + tools + Raspberry Pi hub ≈ ₹15,000 total budget.
+| Reason | MVP |
+|--------|-----|
+| Goats chew, scratch, sleep, and rub against fences — none of this is in any spec | MVP-2 discovers real-world edge cases on one tame goat |
+| LoRa range claims of 2 km are optimistic in dense farms with metal sheds | MVP-4 measures the real range before committing |
+| The activity scoring algorithm is the differentiator — if it's wrong, everything downstream is wrong | MVP-3 validates per-goat baselines actually work |
+| Battery life claims need real data | Every MVP measures actual current draw |
 
-## 5. MVP Roadmap
+## 5. The 5 MVPs
 
-The project follows a 5-stage Minimum Viable Product development plan spanning 12 weeks:
+### MVP-1 — Bench Prototype (Week 1–2)
 
-### MVP-1: Bench Prototype (Weeks 1–2)
-- Assemble breadboard circuit with ESP32 + MPU-6050 + DS18B20
-- Flash firmware, confirm sensor readings on serial monitor
-- Verify BLE advertising and characteristic subscription
-- **Deliverable**: Working bench unit streaming JSON telemetry
+**Goal**: Prove every component works on a breadboard, end-to-end, before any soldering.
 
-### MVP-2: Single Goat Trial (Weeks 3–4)
-- Mount one neckband on a live goat for 72 hours
-- Add deep sleep between sampling windows to optimize power
-- Collect real-world motion and temperature profiles
-- **Deliverable**: 72-hour continuous data capture
+| Item | Detail |
+|------|--------|
+| Units | 1 breadboard build |
+| Hardware | ESP32 + MPU-6050 + DS18B20 + TP4056 + 18650 + voltage divider |
+| Firmware | Read sensors every 30s, log to serial, BLE characteristic exposes JSON |
+| Test | Shake the band by hand, breathe on temp sensor, watch numbers change |
+| Pass criteria | Phone connects via BLE, receives packet every 30s, numbers move when you move it |
 
-### MVP-3: Baseline Learning (Weeks 5–7)
-- Implement per-goat baseline: 5-day learning of hourly mean/stdev
-- Replace naive `activity_score` with baseline deviation detection
-- Store baselines in NVS flash
-- Alert logic: 3 consecutive low-activity windows → WARNING; 5 + temp > 40°C → CRITICAL
-- **Deliverable**: Intelligent per-goat alerting
+### MVP-2 — One Goat, 72 Hours (Week 3)
 
-### MVP-4: LoRa Hub (Weeks 8–10)
-- Enable LoRa transmission from bands to shed hub
-- Build Raspberry Pi hub with Python daemon
-- SQLite buffer for offline resilience
-- MQTT uplink to cloud backend
-- **Deliverable**: Multi-band farm-scale data collection
+**Goal**: Discover what real goat behavior looks like in raw data, before writing any scoring logic.
 
-### MVP-5: Mobile App + Cloud (Weeks 11–12)
-- Deploy cloud backend (FastAPI + TimescaleDB + alert engine)
-- Build Flutter mobile app with dashboard, alerts, and goat profiles
-- Push notifications via FCM + SMS
-- OTA firmware updates
-- **Deliverable**: End-to-end production-ready system
+| Item | Detail |
+|------|--------|
+| Units | 1 PCB-soldered band in IP54 enclosure |
+| Firmware | Logs raw motion + temp every 10s to onboard flash, syncs to phone over BLE |
+| Test | One tame, healthy goat, 72 hours continuous |
+| Pass criteria | Continuous logs for 72h, no dropouts, battery survives |
+| What you'll find | Sleeping ≠ sick, chewing creates rhythmic motion, sun-bathing spikes temp |
 
-## 6. Technology Stack Summary
+### MVP-3 — 5 Goats, Baseline Learning (Week 4–5)
 
-| Domain | Technology | Rationale |
-|--------|-----------|-----------|
-| Firmware framework | ESP-IDF v5.x (native) | Direct FreeRTOS access, smaller binary, finer power control |
-| Build system | PlatformIO + CMake | Reproducible builds, IDE integration |
-| MCU | ESP32 NodeMCU-32S | BLE + WiFi built-in, dual-core for concurrent tasks |
-| Motion sensor | MPU-6050 via I2C | Inexpensive 6-axis IMU, well-documented |
-| Temperature sensor | DS18B20 via 1-Wire | Waterproof, accurate, minimal wiring |
-| Short-range radio | BLE (Bluedroid stack) | Phone pairing for debugging and MVP |
-| Long-range radio | LoRa SX1276 at 433 MHz | Shed-range, low-power, license-free band |
-| Gateway compute | Raspberry Pi Zero 2W | Small, affordable, runs Python |
-| Gateway database | SQLite | Offline buffer, zero-config |
-| Cloud messaging | MQTT over TLS | Lightweight pub/sub, topic-per-goat |
-| Cloud API | FastAPI (Python) | Async, auto-docs, fast development |
-| Time-series DB | TimescaleDB (PostgreSQL) | Purpose-built for sensor data |
-| Mobile app | Flutter | Cross-platform (Android + iOS) |
-| Push notifications | FCM + APNs + MSG91 SMS | Multi-channel farmer alerting |
+**Goal**: Validate that per-goat baseline learning works in the real world.
 
-## 7. Design Principles
+| Item | Detail |
+|------|--------|
+| Units | 5 PCB bands in proper enclosures |
+| Firmware | 5 days baseline learning, then activity score 0–100, still BLE only |
+| Test | 5 goats of mixed temperaments (active, lazy, mid) |
+| Pass criteria | Each goat's baseline is measurably different, no false alerts on lazy goats |
+| What this proves | The core algorithm works. If MVP-3 fails, MVP-4 and MVP-5 are pointless |
 
-1. **Edge-first compute**: Activity scoring runs on the ESP32 itself, not in the cloud. Only summarized telemetry packets are transmitted.
-2. **Graceful degradation**: Each layer works independently. If the cloud is down, the Pi hub buffers locally. If the Pi is down, the band still logs.
-3. **Power efficiency**: The firmware targets 50-day battery life through deep sleep, low sampling duty cycle, and LoRa (not WiFi) for transmission.
-4. **Modular firmware**: Each driver (MPU-6050, DS18B20, battery, BLE) is an independent compilation unit with a clean init/read API.
-5. **Forward-compatible pinmap**: LoRa SPI pins are defined in `pinmap.h` from day one, even though LoRa is activated in MVP-4.
-6. **No Arduino dependency**: Pure ESP-IDF ensures full control over FreeRTOS, NVS, ADC v5 driver, and Bluedroid stack.
+### MVP-4 — LoRa Hub + Cloud Sync (Week 6–8)
 
-## 8. Repository Structure
+**Goal**: Validate LoRa range claims and offline-buffering behavior.
 
-```
-GoatBand_release/
-├── README.md                          ← Project root README
-├── GoatBand_5MVP_Plan.docx            ← Master plan document
-├── docs/                              ← Documentation (you are here)
-│   ├── 01_PROJECT_OVERVIEW.md
-│   ├── 02_SYSTEM_ARCHITECTURE.md
-│   ├── 03_FIRMWARE_DESIGN.md
-│   ├── 04_MODULE_REFERENCE.md
-│   ├── 05_DATA_FLOW_AND_PROTOCOLS.md
-│   └── 06_BUILD_AND_DEPLOYMENT.md
-├── diagrams/                          ← Architecture diagrams (SVG + PNG)
-│   ├── 01_component_architecture.*
-│   ├── 02_system_architecture.*
-│   └── 03_breadboard_tinkercad.*
-└── firmware/                          ← ESP-IDF firmware source
-    ├── README.md
-    ├── platformio.ini
-    ├── partitions.csv
-    ├── CMakeLists.txt
-    ├── include/
-    │   └── pinmap.h
-    └── src/
-        ├── CMakeLists.txt
-        ├── main.c
-        ├── mpu6050.c/.h
-        ├── ds18b20.c/.h
-        ├── battery.c/.h
-        ├── ble_service.c/.h
-        └── activity_score.c/.h
-```
+| Item | Detail |
+|------|--------|
+| Units | 5 bands + 1 Raspberry Pi shed hub |
+| Hardware | MVP-3 bands + SX1276 LoRa daughterboard, Pi Zero 2W with LoRa hat |
+| Test | Walk one band away from hub in 100m increments, note packet loss |
+| Pass criteria | 200m reliable through one shed wall, 500m line-of-sight |
+
+### MVP-5 — Mobile App + Farmer Field Test (Week 9–12)
+
+**Goal**: Full loop with a real farmer making decisions from your alerts.
+
+| Item | Detail |
+|------|--------|
+| Units | 5 bands + hub + mobile app (Flutter) |
+| App screens | Dashboard, alerts, individual goat profile, weight log, vaccination log |
+| Test | 5 bands on 5 goats, including 1 intentionally under-fed to simulate poor health |
+| Pass criteria | Farmer notices the under-fed goat in app before noticing visually |
+| What this proves | The product actually changes farmer behavior |
+
+## 6. Hardware — Bill of Materials (Per Band)
+
+| Component | Specific Part | Qty | Cost (₹) |
+|-----------|---------------|-----|-----------|
+| Microcontroller | ESP32 NodeMCU-32S (38-pin) | 1 | 350 |
+| Motion sensor | MPU-6050 GY-521 module | 1 | 80 |
+| Temperature sensor | DS18B20 waterproof probe | 1 | 120 |
+| Charger module | TP4056 with USB-C + protection | 1 | 50 |
+| Battery | 18650 Li-ion 2600 mAh | 1 | 300 |
+| Battery holder | 18650 single-cell holder | 1 | 30 |
+| Resistor | 4.7kΩ (DS18B20 pullup) | 1 | 1 |
+| Resistor pair | 100kΩ (battery divider) | 2 | 2 |
+| Slide switch | SPDT mini slide switch | 1 | 10 |
+| Perfboard | 5×7cm prototype PCB | 1 | 30 |
+| Wire | 30 AWG silicone hookup | 1m | 20 |
+| Enclosure | IP54 ABS box ~70×50×25mm | 1 | 120 |
+| Strap | 25mm nylon webbing + buckle | 1 | 60 |
+| Silica gel | Moisture pack 2g | 1 | 5 |
+| LoRa module (MVP-4+) | SX1276 RA-02 433 MHz | 1 | 350 |
+| **Per-band total (no LoRa)** | | | **1,178** |
+| **Per-band total (with LoRa)** | | | **1,528** |
+
+### Total Project Cost — 5 Bands + Hub
+
+| Item | Qty | Unit (₹) | Total (₹) |
+|------|-----|-----------|-----------|
+| MVP-1/2/3 bands (no LoRa) | 5 | 1,178 | 5,890 |
+| LoRa modules (MVP-4) | 5 | 350 | 1,750 |
+| Shed hub (Pi + LoRa hat) | 1 | 3,100 | 3,100 |
+| Tools (soldering iron, multimeter, breadboard) | 1 | 2,500 | 2,500 |
+| Spare components 20% buffer | — | — | 1,800 |
+| **Grand total** | | | **₹15,040** |
+
+## 7. Configuration Locked for This Plan
+
+| Decision | Choice |
+|----------|--------|
+| Radio | BLE + LoRa (BLE for nearby phone, LoRa for shed range) |
+| Power | Battery-only with TP4056 charging in-place (no swap dock for MVP) |
+| Sensors | MPU-6050 motion + DS18B20 temperature from MVP-1 |
+| Test scale | 5 bands on real goats |
+| Firmware framework | Pure ESP-IDF, no Arduino |
+| Total budget | ~₹15,000 for 5 bands + tools + Pi hub |
+
+## 8. Build Sequence — Week by Week
+
+| Week | Deliverable | Risk to Watch |
+|------|-------------|---------------|
+| 1 | Order components, set up PlatformIO, breadboard MVP-1 | Wrong ESP32 variant — buy NodeMCU-32S |
+| 2 | MVP-1 firmware running, BLE working, JSON streaming | Library version mismatches |
+| 3 | MVP-2 — solder onto perfboard, enclosure, 1 goat 72h | Strap rubs raw — sew a fabric liner |
+| 4 | MVP-3 build × 5 units | Soldering quality on small batches |
+| 5 | MVP-3 deploy + baseline learning runs | Baselines noisy — extend learning to 7 days |
+| 6 | MVP-4 hub build, Pi LoRa receiving | Antenna placement matters |
+| 7 | MVP-4 cloud sync + range test | WiFi at the farm — 4G dongle as fallback |
+| 8 | MVP-4 review + fix issues | Buffer week |
+| 9 | MVP-5 mobile app skeleton | Pick Flutter — single codebase |
+| 10 | MVP-5 dashboard + alerts wired | Don't over-design |
+| 11 | MVP-5 farmer field test | Farmer has to actually use it |
+| 12 | MVP-5 review, write up findings | What broke > what worked |

@@ -2,223 +2,175 @@
 
 ## 1. Architecture Overview
 
-GoatBand follows a four-layer IoT architecture pattern, with each layer serving as an independent deployment unit. Data flows upward from edge devices through a gateway to cloud services, while alerts and commands flow downward to the farmer's mobile client.
+GoatBand follows a layered IoT architecture. At the current development phase, the focus is on **Layer 1 (edge device)** with BLE connectivity to a phone for testing. Later MVPs progressively add LoRa radio, a gateway hub, and a mobile app.
 
-```mermaid
-graph TB
-    subgraph Layer1["Layer 1 - Edge Devices"]
-        ESP32["ESP32 NodeMCU-32S"]
-        MPU["MPU-6050 IMU"]
-        DS["DS18B20 Temp"]
-        BATT["Battery Monitor"]
-        BLE["BLE Radio"]
-        LORA_E["LoRa SX1276"]
-    end
+### Component Architecture
 
-    subgraph Layer2["Layer 2 - On-Prem Gateway"]
-        PI["Raspberry Pi Zero 2W"]
-        LORA_H["LoRa SX1276 HAT"]
-        SQLITE["SQLite Buffer"]
-        MQTT_C["MQTT Client"]
-    end
+The component architecture diagram shows the six major components — neckband, shed hub, cloud backend, mobile app, charging dock, and farmer — with named protocols on every connector.
 
-    subgraph Layer3["Layer 3 - Cloud Backend"]
-        BROKER["MQTT Broker"]
-        API["Ingest API"]
-        TSDB["TimescaleDB"]
-        ALERT["Alert Engine"]
-        PUSH["Push Gateway"]
-        REG["User Registry"]
-        OBJ["Object Storage"]
-    end
+- **Solid arrows** = production data paths
+- **Dashed arrows** = BLE-only path used during MVP-1 to MVP-3
+- **Dotted lines** = physical/out-of-band relationships (battery swap)
 
-    subgraph Layer4["Layer 4 - Client App"]
-        DASH["Dashboard"]
-        ALERTS["Alert View"]
-        PROFILE["Goat Profile"]
-        RECORDS["Records"]
-    end
+![Component Architecture — what talks to what](../diagrams/01_component_architecture.png)
 
-    MPU -->|I2C| ESP32
-    DS -->|1-Wire| ESP32
-    BATT -->|ADC| ESP32
-    ESP32 --> BLE
-    ESP32 --> LORA_E
-    LORA_E -->|433 MHz| LORA_H
-    LORA_H -->|SPI| PI
-    PI --> SQLITE
-    PI --> MQTT_C
-    MQTT_C -->|TLS| BROKER
-    BROKER --> API
-    API --> TSDB
-    API --> ALERT
-    ALERT --> PUSH
-    PUSH --> Layer4
-    BLE -.->|MVP 1-3| Layer4
-```
+### System Architecture (Deployment View)
 
-## 2. Layer Descriptions
+The system architecture shows four numbered layers stacked from physical edge devices at the top down to the farmer's phone at the bottom. Each layer is a separate deployment unit.
 
-### 2.1 Layer 1 — Edge Devices (On-Goat Neckband)
+![System Architecture — layered deployment view](../diagrams/02_system_architecture.png)
 
-The edge layer consists of the wearable neckband device attached to each goat. Each band operates independently and performs local edge compute before transmitting summarized telemetry.
+## 2. Current Development Focus
 
-**Components:**
-
-| Component | Interface | Function |
-|-----------|-----------|----------|
-| ESP32 NodeMCU-32S | — | Main MCU, 240 MHz dual-core, runs FreeRTOS |
-| MPU-6050 | I2C (SDA=21, SCL=22, 400 kHz) | 6-axis motion sensor (accelerometer + gyroscope) |
-| DS18B20 | 1-Wire (GPIO 4, 4.7kΩ pullup) | Skin-contact temperature probe |
-| Battery ADC | ADC1_CH7 (GPIO 35, 100k/100k divider) | Battery voltage monitoring |
-| BLE (Bluedroid) | On-chip radio | Short-range phone connectivity |
-| LoRa SX1276 | SPI (MOSI=23, MISO=19, SCK=18, CS=5) | Long-range shed hub connectivity |
-
-**Edge compute responsibilities:**
-- 20 Hz motion sampling with gravity subtraction
-- 30-second window averaging
-- Activity score computation (naive in MVP-1, baseline-aware in MVP-3)
-- JSON telemetry packet assembly
-- BLE GATT notification broadcast
-
-### 2.2 Layer 2 — On-Prem Gateway (Shed Hub)
-
-A single Raspberry Pi Zero 2W per farm acts as the data aggregation point. It receives LoRa packets from all neckbands within range and relays them to the cloud.
-
-**Components:**
-
-| Component | Interface | Function |
-|-----------|-----------|----------|
-| Pi Zero 2W | — | Gateway compute, runs Python daemon |
-| SX1276 HAT | SPI to Pi | LoRa receiver at 433 MHz |
-| WiFi / 4G | WAN uplink | Internet connectivity to cloud |
-| SQLite | Local file | Offline packet buffer |
-
-**Gateway responsibilities:**
-- Receive and decode LoRa packets from multiple bands
-- Buffer packets locally in SQLite during connectivity loss
-- Publish buffered packets to cloud via MQTT over TLS
-- Topic routing: one MQTT topic per goat ID
-
-### 2.3 Layer 3 — Cloud Backend
-
-Managed cloud services handle long-term storage, alert logic, and notification delivery.
-
-**Components:**
-
-| Service | Technology | Function |
-|---------|-----------|----------|
-| MQTT Broker | Mosquitto + TLS | Receives telemetry from all farm hubs |
-| Ingest API | FastAPI (Python) | Validates packets, writes to database |
-| TimescaleDB | PostgreSQL extension | Time-series telemetry storage |
-| Alert Engine | Stateful Python worker | 3-cycle debounce, WARNING/CRITICAL classification |
-| Push Gateway | FCM + APNs + MSG91 | Multi-channel farmer notification |
-| User Registry | PostgreSQL (OLTP) | Farmer accounts, goat records, farm mapping |
-| Object Storage | Cloudflare R2 | Goat photos, health certificates |
-
-### 2.4 Layer 4 — Client Application
-
-A Flutter-based mobile app provides the farmer-facing interface.
-
-**Screens:**
-
-| Screen | Function |
-|--------|----------|
-| Dashboard | Herd summary with healthy/warning/critical counts |
-| Alerts | Priority-sorted alert list, tap-to-act, mark resolved |
-| Goat Profile | Per-goat detail with activity charts, vaccination log |
-| Records | Manual entry for weight log, vaccination history |
-
-## 3. Component Architecture Diagram
+For the initial MVP phase, the active components are:
 
 ```mermaid
 graph LR
-    subgraph Neckband["Neckband - ESP32"]
-        A["MPU-6050"] -->|I2C| B["ESP32"]
-        C["DS18B20"] -->|1-Wire| B
-        D["Battery"] -->|ADC| B
+    subgraph MVP1_3["MVP-1 to MVP-3 (Current)"]
+        MPU["MPU-6050\nMotion Sensor"] -->|I2C| ESP["ESP32\nNodeMCU-32S"]
+        DS["DS18B20\nTemp Sensor"] -->|1-Wire| ESP
+        BAT["Battery\nADC Monitor"] --> ESP
+        ESP -->|BLE| PHONE["Phone\nnRF Connect"]
     end
-
-    subgraph Hub["Shed Hub - Pi"]
-        E["LoRa RX"] --> F["Python Daemon"]
-        F --> G["SQLite"]
-    end
-
-    subgraph Cloud["Cloud Services"]
-        H["MQTT Broker"]
-        I["Ingest API"]
-        J["TimescaleDB"]
-        K["Alert Engine"]
-    end
-
-    subgraph App["Mobile App"]
-        L["Flutter Client"]
-    end
-
-    B -->|LoRa| E
-    B -.->|BLE MVP 1-3| L
-    F -->|MQTT/TLS| H
-    H --> I
-    I --> J
-    I --> K
-    K -->|Push| L
 ```
 
-## 4. Deployment Architecture
+Starting from MVP-4, LoRa and the shed hub come online:
 
-Each layer is a separate deployment unit with its own release cycle:
+```mermaid
+graph LR
+    subgraph MVP4_5["MVP-4 to MVP-5 (Future)"]
+        BAND["5x Neckbands"] -->|LoRa 433 MHz| HUB["Shed Hub\nPi Zero 2W"]
+        HUB -->|WiFi/4G| CLOUD["Cloud Backend"]
+        CLOUD -->|Push/SMS| APP["Flutter App"]
+    end
+```
+
+## 3. Layer Descriptions
+
+### Layer 1 — Edge Devices (On-Goat Neckband)
+
+The wearable neckband is the core of the system. Each band operates independently and performs local edge compute before transmitting summarized telemetry.
+
+| Component | Interface | Function |
+|-----------|-----------|----------|
+| ESP32 NodeMCU-32S | — | Main MCU, 240 MHz dual-core, FreeRTOS |
+| MPU-6050 | I2C (SDA=21, SCL=22, 400 kHz) | 6-axis motion sensor |
+| DS18B20 | 1-Wire (GPIO 4, 4.7kΩ pullup) | Skin-contact temperature probe |
+| Battery ADC | ADC1_CH7 (GPIO 35, 100k/100k divider) | Battery voltage monitoring |
+| BLE (Bluedroid) | On-chip radio | Phone connectivity (MVP-1 to MVP-3) |
+| LoRa SX1276 | SPI (MVP-4 onward) | Long-range shed hub connectivity |
+
+**Edge compute responsibilities:**
+
+- 20 Hz motion sampling with gravity subtraction
+- 30-second window averaging
+- Activity score computation
+- JSON telemetry packet assembly
+- BLE GATT notification broadcast
+
+### Layer 2 — On-Prem Gateway (MVP-4 Onward)
+
+A single Raspberry Pi Zero 2W per farm receives LoRa packets from all neckbands and relays them onward.
+
+| Component | Function |
+|-----------|----------|
+| Pi Zero 2W | Gateway compute, Python daemon |
+| SX1276 LoRa HAT | LoRa receiver at 433 MHz |
+| SQLite | Offline packet buffer |
+| WiFi / 4G | Internet connectivity |
+
+### Layer 3 — Cloud Backend (MVP-5)
+
+Cloud services handle long-term storage and notification delivery. Specific technology choices will be evaluated when MVP-4 data collection is proven.
+
+### Layer 4 — Client App (MVP-5)
+
+A Flutter mobile app provides the farmer-facing interface with dashboard, alerts, goat profiles, and manual record entry.
+
+## 4. Breadboard Layout
+
+The Tinkercad-style breadboard layout shows the physical placement of every component for the MVP-1 build:
+
+![Breadboard Layout — MVP-1 wiring reference](../diagrams/03_breadboard_tinkercad.png)
+
+## 5. Wiring Map
+
+### Power Rail
+
+| From | To | Wire |
+|------|----|------|
+| 18650 (+) | TP4056 B+ | Red, 22 AWG |
+| 18650 (−) | TP4056 B− | Black, 22 AWG |
+| TP4056 OUT+ | SPDT switch (common) | Red, 22 AWG |
+| SPDT switch (out) | ESP32 VIN | Red, 22 AWG |
+| TP4056 OUT− | ESP32 GND | Black, 22 AWG |
+
+### Sensors
+
+| From | To | Notes |
+|------|----|-------|
+| ESP32 3V3 | MPU-6050 VCC, DS18B20 VCC | Common 3.3V rail |
+| ESP32 GND | MPU-6050 GND, DS18B20 GND | Common ground |
+| ESP32 GPIO 21 | MPU-6050 SDA | I2C data |
+| ESP32 GPIO 22 | MPU-6050 SCL | I2C clock |
+| ESP32 GPIO 4 | DS18B20 DATA | 1-Wire — needs 4.7kΩ pullup to 3V3 |
+
+### Battery Monitor
+
+| From | To | Notes |
+|------|----|-------|
+| Battery + (after switch) | 100kΩ → midpoint → 100kΩ → GND | Half voltage divider |
+| Divider midpoint | ESP32 GPIO 35 | ADC1_CH7 — read raw, multiply by 2 |
+
+### LoRa (MVP-4 Onward)
+
+| From | To |
+|------|----|
+| ESP32 GPIO 5 | RA-02 NSS (CS) |
+| ESP32 GPIO 18 | RA-02 SCK |
+| ESP32 GPIO 19 | RA-02 MISO |
+| ESP32 GPIO 23 | RA-02 MOSI |
+| ESP32 GPIO 14 | RA-02 RST |
+| ESP32 GPIO 26 | RA-02 DIO0 |
+| ESP32 3V3 | RA-02 VCC |
+| ESP32 GND | RA-02 GND |
+
+## 6. MVP Progression — What Gets Activated When
 
 ```mermaid
 graph TD
-    subgraph Edge["Edge - Ships on Hardware"]
-        FW["ESP-IDF Firmware Binary"]
-        HW["PCB + Enclosure"]
+    subgraph MVP1["MVP-1: Bench Prototype"]
+        A1["ESP32 + Sensors + BLE"]
+        A2["Serial JSON output"]
+        A3["Phone via nRF Connect"]
     end
 
-    subgraph Gateway["Gateway - Ships on Pi Image"]
-        PY["Python Daemon"]
-        DB["SQLite Schema"]
-        SYS["systemd Service"]
+    subgraph MVP2["MVP-2: One Goat Trial"]
+        B1["Soldered perfboard"]
+        B2["IP54 enclosure"]
+        B3["72h data logging"]
     end
 
-    subgraph Cloud_Deploy["Cloud - Ships via CI/CD"]
-        API_D["FastAPI Container"]
-        DB_D["TimescaleDB Migration"]
-        ALERT_D["Alert Worker Container"]
-        PUSH_D["Push Gateway Container"]
+    subgraph MVP3["MVP-3: Baseline Learning"]
+        C1["5 bands deployed"]
+        C2["Per-goat baseline algorithm"]
+        C3["Activity score 0-100"]
     end
 
-    subgraph Client_Deploy["Client - Ships via App Store"]
-        APK["Flutter APK/IPA"]
+    subgraph MVP4["MVP-4: LoRa Hub"]
+        D1["SX1276 LoRa on bands"]
+        D2["Pi Zero 2W hub"]
+        D3["Range testing"]
     end
 
-    FW -->|USB Flash / OTA| HW
-    PY -->|SD Card Image| Gateway
-    API_D -->|Docker Deploy| Cloud_Deploy
-    APK -->|Play Store / App Store| Client_Deploy
+    subgraph MVP5["MVP-5: Mobile App"]
+        E1["Flutter app"]
+        E2["Farmer field test"]
+        E3["Alert validation"]
+    end
+
+    MVP1 --> MVP2
+    MVP2 --> MVP3
+    MVP3 --> MVP4
+    MVP4 --> MVP5
 ```
-
-## 5. Network Topology
-
-```mermaid
-graph TB
-    G1["Goat 1 Band"] -->|LoRa 433 MHz| HUB["Shed Hub"]
-    G2["Goat 2 Band"] -->|LoRa 433 MHz| HUB
-    G3["Goat 3 Band"] -->|LoRa 433 MHz| HUB
-    G4["Goat 4 Band"] -->|LoRa 433 MHz| HUB
-    G5["Goat 5 Band"] -->|LoRa 433 MHz| HUB
-    HUB -->|WiFi/4G + MQTT/TLS| CLOUD["Cloud Backend"]
-    CLOUD -->|FCM/APNs/SMS| PHONE["Farmer Phone"]
-    G1 -.->|BLE debug| PHONE
-```
-
-## 6. Security Considerations
-
-| Layer | Measure |
-|-------|---------|
-| LoRa link | Encrypted payload (AES-128), frame counter for replay protection |
-| MQTT transport | TLS 1.2+ with mutual certificate authentication |
-| Cloud API | JWT-based auth, rate limiting, input validation |
-| Mobile app | OAuth 2.0 login, certificate pinning |
-| Firmware OTA | Signed binary verification before flash |
-| NVS storage | Encrypted NVS partition for baseline data |
