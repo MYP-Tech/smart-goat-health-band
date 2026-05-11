@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" viewBox="0 0 680 540" role="img">
+<title>GoatBand component architecture</title>
+<desc>Major components and how they communicate.</desc>
+<style>
+  .th { font: 500 14px sans-serif; fill: #1F1E1B; }
+  .ts { font: 400 12px sans-serif; fill: #5F5E5A; }
+  .c-purple rect { fill: #EEEDFE; stroke: #534AB7; }
+  .c-purple text.th { fill: #3C3489; }
+  .c-purple text.ts { fill: #534AB7; }
+  .c-green rect { fill: #EAF3DE; stroke: #639922; }
+  .c-green text.th { fill: #27500A; }
+  .c-green text.ts { fill: #3B6D11; }
+  .c-blue rect { fill: #E6F1FB; stroke: #378ADD; }
+  .c-blue text.th { fill: #0C447C; }
+  .c-blue text.ts { fill: #185FA5; }
+  .c-amber rect { fill: #FAEEDA; stroke: #BA7517; }
+  .c-amber text.th { fill: #633806; }
+  .c-amber text.ts { fill: #854F0B; }
+  .c-pink rect { fill: #FBEAF0; stroke: #D4537E; }
+  .c-pink text.th { fill: #72243E; }
+  .c-pink text.ts { fill: #993556; }
+  .c-coral rect { fill: #FAECE7; stroke: #D85A30; }
+  .c-coral text.th { fill: #712B13; }
+  .c-coral text.ts { fill: #993C1D; }
+  .box { fill: #FAFAF7; stroke: #B4B2A9; }
+  .arr { stroke: #5F5E5A; stroke-width: 1.5; fill: none; }
+</style>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+
+<text class="th" x="340" y="26" text-anchor="middle">Component architecture</text>
+<text class="ts" x="340" y="44" text-anchor="middle">What talks to what</text>
+
+<g class="c-purple">
+<rect x="40" y="80" width="170" height="110" rx="10" stroke-width="0.5"/>
+<g transform="translate(70,118)">
+<circle cx="0" cy="0" r="13" fill="none" stroke="#534AB7" stroke-width="1.4"/>
+<path d="M-7 -4 Q-11 -10 -5 -11 M7 -4 Q11 -10 5 -11" stroke="#534AB7" stroke-width="1.4" fill="none"/>
+<circle cx="-4" cy="-2" r="1.2" fill="#534AB7"/>
+<circle cx="4" cy="-2" r="1.2" fill="#534AB7"/>
+<path d="M-3 4 Q0 6 3 4" stroke="#534AB7" stroke-width="1.2" fill="none"/>
+</g>
+<text class="th" x="98" y="114" dominant-baseline="central">Neckband</text>
+<text class="ts" x="98" y="130" dominant-baseline="central">ESP32 device</text>
+<text class="ts" x="60" y="158" dominant-baseline="central">Reads motion + temp</text>
+<text class="ts" x="60" y="174" dominant-baseline="central">Edge compute</text>
+</g>
+
+<g class="c-green">
+<rect x="255" y="80" width="170" height="110" rx="10" stroke-width="0.5"/>
+<g transform="translate(285,118)">
+<rect x="-12" y="-9" width="24" height="18" rx="2" fill="none" stroke="#3B6D11" stroke-width="1.4"/>
+<circle cx="-6" cy="-2" r="1.5" fill="#3B6D11"/>
+<circle cx="0" cy="-2" r="1.5" fill="#3B6D11"/>
+<circle cx="6" cy="-2" r="1.5" fill="#3B6D11"/>
+<line x1="-10" y1="3" x2="10" y2="3" stroke="#3B6D11" stroke-width="0.6"/>
+<rect x="-2" y="9" width="4" height="3" fill="#3B6D11"/>
+</g>
+<text class="th" x="313" y="114" dominant-baseline="central">Shed hub</text>
+<text class="ts" x="313" y="130" dominant-baseline="central">Raspberry Pi</text>
+<text class="ts" x="275" y="158" dominant-baseline="central">Aggregates packets</text>
+<text class="ts" x="275" y="174" dominant-baseline="central">Buffers offline</text>
+</g>
+
+<g class="c-blue">
+<rect x="470" y="80" width="170" height="110" rx="10" stroke-width="0.5"/>
+<g transform="translate(500,118)">
+<path d="M-13 4 Q-13 -7 -2 -7 Q-2 -13 5 -13 Q13 -13 13 -5 Q17 -5 17 0 Q17 5 11 5 L-9 5 Q-13 5 -13 4 Z" fill="none" stroke="#185FA5" stroke-width="1.4"/>
+</g>
+<text class="th" x="528" y="114" dominant-baseline="central">Cloud</text>
+<text class="ts" x="528" y="130" dominant-baseline="central">Backend services</text>
+<text class="ts" x="490" y="158" dominant-baseline="central">Stores history</text>
+<text class="ts" x="490" y="174" dominant-baseline="central">Fires alerts</text>
+</g>
+
+<g class="c-amber">
+<rect x="40" y="280" width="170" height="110" rx="10" stroke-width="0.5"/>
+<g transform="translate(70,318)">
+<rect x="-12" y="-12" width="24" height="20" rx="2" fill="none" stroke="#854F0B" stroke-width="1.4"/>
+<line x1="-9" y1="-7" x2="9" y2="-7" stroke="#854F0B" stroke-width="0.7"/>
+<line x1="-9" y1="-3" x2="9" y2="-3" stroke="#854F0B" stroke-width="0.7"/>
+<line x1="-9" y1="1" x2="9" y2="1" stroke="#854F0B" stroke-width="0.7"/>
+<line x1="-9" y1="5" x2="9" y2="5" stroke="#854F0B" stroke-width="0.7"/>
+<rect x="-2" y="8" width="4" height="3" fill="#854F0B"/>
+</g>
+<text class="th" x="98" y="314" dominant-baseline="central">Charging dock</text>
+<text class="ts" x="98" y="330" dominant-baseline="central">30-slot tray</text>
+<text class="ts" x="60" y="358" dominant-baseline="central">Charges spare cells</text>
+<text class="ts" x="60" y="374" dominant-baseline="central">Out of band</text>
+</g>
+
+<g class="c-pink">
+<rect x="255" y="280" width="170" height="110" rx="10" stroke-width="0.5"/>
+<g transform="translate(285,318)">
+<rect x="-7" y="-12" width="14" height="22" rx="2" fill="none" stroke="#993556" stroke-width="1.4"/>
+<rect x="-5" y="-9" width="10" height="14" fill="none" stroke="#993556" stroke-width="0.7"/>
+<circle cx="0" cy="7.5" r="0.8" fill="#993556"/>
+</g>
+<text class="th" x="313" y="314" dominant-baseline="central">Mobile app</text>
+<text class="ts" x="313" y="330" dominant-baseline="central">Flutter client</text>
+<text class="ts" x="275" y="358" dominant-baseline="central">Dashboard + alerts</text>
+<text class="ts" x="275" y="374" dominant-baseline="central">Per-goat history</text>
+</g>
+
+<g class="c-coral">
+<rect x="470" y="280" width="170" height="110" rx="10" stroke-width="0.5"/>
+<g transform="translate(500,318)">
+<circle cx="0" cy="-2" r="6" fill="none" stroke="#993C1D" stroke-width="1.4"/>
+<path d="M-8 12 Q-8 4 0 4 Q8 4 8 12" fill="none" stroke="#993C1D" stroke-width="1.4"/>
+</g>
+<text class="th" x="528" y="314" dominant-baseline="central">Farmer</text>
+<text class="ts" x="528" y="330" dominant-baseline="central">End user</text>
+<text class="ts" x="490" y="358" dominant-baseline="central">Reads alerts</text>
+<text class="ts" x="490" y="374" dominant-baseline="central">Logs weight</text>
+</g>
+
+<line x1="210" y1="120" x2="253" y2="120" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="231" y="112" text-anchor="middle">LoRa</text>
+
+<line x1="425" y1="120" x2="468" y2="120" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="446" y="112" text-anchor="middle">MQTT</text>
+
+<line x1="555" y1="190" x2="370" y2="278" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="466" y="234">Push notify</text>
+
+<path d="M125 190 L125 232 L340 232 L340 278" stroke="#5F5E5A" stroke-width="1" fill="none" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text class="ts" x="232" y="226" text-anchor="middle">BLE (MVP 1 to 3)</text>
+
+<line x1="470" y1="335" x2="427" y2="335" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="448" y="329" text-anchor="middle">taps</text>
+
+<path d="M125 280 L125 254 L98 254 L98 192" stroke="#5F5E5A" stroke-width="1" fill="none" stroke-dasharray="3 3"/>
+<text class="ts" x="62" y="240">battery swap</text>
+
+<g class="box">
+<rect x="40" y="420" width="600" height="100" rx="10" stroke-width="0.5"/>
+</g>
+<text class="th" x="56" y="442" dominant-baseline="central">Legend</text>
+
+<g transform="translate(56,460)">
+<rect x="0" y="0" width="14" height="10" rx="2" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text class="ts" x="22" y="5" dominant-baseline="central">Edge device</text>
+</g>
+
+<g transform="translate(170,460)">
+<rect x="0" y="0" width="14" height="10" rx="2" fill="#EAF3DE" stroke="#639922" stroke-width="0.5"/>
+<text class="ts" x="22" y="5" dominant-baseline="central">On-prem hub</text>
+</g>
+
+<g transform="translate(290,460)">
+<rect x="0" y="0" width="14" height="10" rx="2" fill="#E6F1FB" stroke="#378ADD" stroke-width="0.5"/>
+<text class="ts" x="22" y="5" dominant-baseline="central">Cloud service</text>
+</g>
+
+<g transform="translate(410,460)">
+<rect x="0" y="0" width="14" height="10" rx="2" fill="#FBEAF0" stroke="#D4537E" stroke-width="0.5"/>
+<text class="ts" x="22" y="5" dominant-baseline="central">Mobile app</text>
+</g>
+
+<g transform="translate(520,460)">
+<rect x="0" y="0" width="14" height="10" rx="2" fill="#FAECE7" stroke="#D85A30" stroke-width="0.5"/>
+<text class="ts" x="22" y="5" dominant-baseline="central">Human user</text>
+</g>
+
+<g transform="translate(56,486)">
+<line x1="0" y1="5" x2="22" y2="5" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="30" y="5" dominant-baseline="central">Solid — production data flow</text>
+</g>
+
+<g transform="translate(290,486)">
+<line x1="0" y1="5" x2="22" y2="5" stroke="#5F5E5A" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text class="ts" x="30" y="5" dominant-baseline="central">Dashed — MVP-only path</text>
+</g>
+
+<g transform="translate(56,506)">
+<line x1="0" y1="5" x2="22" y2="5" stroke="#5F5E5A" stroke-width="1" stroke-dasharray="3 3"/>
+<text class="ts" x="30" y="5" dominant-baseline="central">Dotted — physical / out of band</text>
+</g>
+</svg>
